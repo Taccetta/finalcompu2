@@ -3,11 +3,12 @@ import socket
 import json
 import os
 
+# colocar al parseo
 HOST = 'localhost'
 PORT = 5000
 
 def send_file(conversion_type, file_path):
-    # Validar extensión del archivo
+    # Validar
     if not file_path.lower().endswith('.txt'):
         print("Error: El archivo debe ser .txt")
         return
@@ -19,7 +20,7 @@ def send_file(conversion_type, file_path):
         s.connect((HOST, PORT))
         print(f"Conectado al servidor {HOST}:{PORT}")
         
-        # Enviar metadatos
+        # envio de metadatos
         header = {
             'conversion_type': conversion_type,
             'file_name': file_name,
@@ -30,7 +31,7 @@ def send_file(conversion_type, file_path):
         s.sendall(header_json)
         print(f"Enviando archivo: {file_name} ({file_size} bytes)")
         
-        # Enviar archivo TXT
+        # envio TXT
         with open(file_path, 'rb') as f:
             while True:
                 data = f.read(4096)
@@ -38,7 +39,7 @@ def send_file(conversion_type, file_path):
                     break
                 s.sendall(data)
         
-        # Recibir respuesta
+        # respuesta
         response_header_data = s.recv(1024).strip()
         if not response_header_data:
             print("Sin respuesta del servidor")
@@ -53,7 +54,7 @@ def send_file(conversion_type, file_path):
         output_file = response_header['file_name']
         output_size = response_header['file_size']
         
-        # Recibir PDF
+        # recibir PDF completo
         pdf_data = b''
         while len(pdf_data) < output_size:
             chunk = s.recv(4096)
