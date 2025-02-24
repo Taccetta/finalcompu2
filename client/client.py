@@ -2,10 +2,12 @@ import argparse
 import socket
 import json
 import os
+from dotenv import load_dotenv
 
-# colocar al parseo
-HOST = 'localhost'
-PORT = 5000
+# env
+load_dotenv()
+HOST = os.getenv('HOST')
+PORT = int(os.getenv('PORT'))
 
 def send_file(conversion_type, file_path):
     # Validar
