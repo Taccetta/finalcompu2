@@ -2,14 +2,43 @@ import argparse
 import socket
 import json
 import os
-from dotenv import load_dotenv
+import sys
 
-# env
-load_dotenv()
-HOST = os.getenv('HOST')
-PORT = int(os.getenv('PORT'))
 
-def send_file(conversion_type, file_path):
+
+def parse_arguments():
+    """Configura y parsea los argumentos de línea de comandos"""
+    parser = argparse.ArgumentParser(description='Cliente para conversión TXT a PDF')
+    parser.add_argument('--ip', required=True,
+                        help='Dirección IP del servidor (IPv4 o IPv6)')
+    parser.add_argument('--port', type=int, required=True,
+                        help='Puerto del servidor (1-65535)')
+    parser.add_argument('--file_path', required=True,
+                        help='Ruta al archivo .txt a convertir')
+    return parser.parse_args()
+
+def validate_input(args):
+    """Valida los argumentos recibidos"""
+    # Validar puerto
+    if not (1 <= args.port <= 65535):
+        raise ValueError("Puerto fuera de rango válido (1-65535)")
+        
+    # Validar archivo
+    if not args.file_path.lower().endswith('.txt'):
+        raise ValueError("El archivo debe tener extensión .txt")
+    if not os.path.isfile(args.file_path):
+        raise ValueError(f"Archivo no encontrado: {args.file_path}")
+    
+    # Validar IP
+    try:
+        socket.inet_pton(socket.AF_INET, args.ip)
+    except socket.error:
+        try:
+            socket.inet_pton(socket.AF_INET6, args.ip)
+        except socket.error:
+            raise ValueError("Dirección IP no válida (IPv4 o IPv6)")
+
+def send_file(file_path, server_ip, server_port):
     # Validar
     if not file_path.lower().endswith('.txt'):
         print("Error: El archivo debe ser .txt")
@@ -19,12 +48,22 @@ def send_file(conversion_type, file_path):
     file_size = os.path.getsize(file_path)
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((HOST, PORT))
-        print(f"Conectado al servidor {HOST}:{PORT}")
+        try:
+            s.settimeout(5)
+            s.connect((server_ip, server_port))
+        except (ConnectionRefusedError, socket.timeout) as e:
+            print(f"Error de conexión: No se pudo conectar al servidor {server_ip}:{server_port}")
+            print(f"Detalles: {str(e)}")
+            return
+        except Exception as e:
+            print(f"Error inesperado al conectar: {str(e)}")
+            return
+            
+        print(f"Conectado al servidor {server_ip}:{server_port}")
         
         # envio de metadatos
         header = {
-            'conversion_type': conversion_type,
+            'conversion_type': 'txt2pdf',
             'file_name': file_name,
             'file_size': file_size
         }
@@ -71,19 +110,11 @@ def send_file(conversion_type, file_path):
         else:
             print("Error: Archivo PDF incompleto recibido")
 
-def main():
-    parser = argparse.ArgumentParser(description='Conversor TXT a PDF')
-    parser.add_argument('--conversion_type', choices=['txt2pdf'], required=True,
-                       help='Tipo de conversión (solo txt2pdf)')
-    parser.add_argument('--file_path', required=True, 
-                       help='Ruta al archivo .txt de entrada')
-    args = parser.parse_args()
-    
-    if not os.path.exists(args.file_path):
-        print(f"Error: Archivo {args.file_path} no encontrado")
-        return
-    
-    send_file(args.conversion_type, args.file_path)
-
 if __name__ == '__main__':
-    main()
+    try:
+        args = parse_arguments()
+        validate_input(args)
+        send_file(args.file_path, args.ip, args.port)
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        sys.exit(1)

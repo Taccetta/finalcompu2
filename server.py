@@ -1,5 +1,6 @@
 import socket
 import threading
+from threading import Semaphore
 import json
 import os
 from reportlab.pdfgen import canvas
@@ -9,13 +10,12 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_JUSTIFY
 from reportlab.lib.units import mm
 from dotenv import load_dotenv
-from threading import Semaphore
 from datetime import datetime
 from multiprocessing import Process, Queue
 from sqlalchemy import create_engine, Column, Integer, String, DateTime
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.orm import sessionmaker, scoped_session, declarative_base
 import time
+import select #select protocolo ip
 
 #=================================================================================
 # env
@@ -23,8 +23,8 @@ load_dotenv()
 HOST = os.getenv('HOST')
 PORT = int(os.getenv('PORT'))
 
-# semaforo
-log_semaforo = Semaphore(1)
+# mutex
+log_lock = threading.Lock()
 
 # db
 Base = declarative_base()
@@ -34,8 +34,8 @@ class ConversionLog(Base):
     id = Column(Integer, primary_key=True)
     ip = Column(String(15))
     nombre_archivo = Column(String(255))
-    peso_txt = Column(Integer)  # En bytes
-    peso_pdf = Column(Integer)  # En bytes
+    tamano_txt = Column(Integer)  # En bytes
+    tamano_pdf = Column(Integer)  # En bytes
     fecha = Column(DateTime)
 
 # db config
@@ -108,15 +108,21 @@ def handle_client(conn, addr):
         # ruta de guardado
         temp_input = os.path.join('temp', f"{thread_id}_{file_name}")
         os.makedirs('temp', exist_ok=True)
+
+        #os.system("pause")
         
         with open(temp_input, 'wb') as f:
             remaining = file_size
             while remaining > 0:
-                data = conn.recv(min(4096, remaining))
-                if not data:
-                    break
-                f.write(data)
-                remaining -= len(data)
+                try:
+                    data = conn.recv(min(4096, remaining))
+                    #os.system("pause")
+                    if not data:
+                        raise ConnectionError("Cliente desconectado durante la transferencia del archivo")
+                    f.write(data)
+                    remaining -= len(data)
+                except (ConnectionResetError, BrokenPipeError):
+                    raise ConnectionError("Conexión interrumpida durante la recepción del archivo")
         
         # PDF
         output_name = f"{thread_id}_{file_name[:-4]}.pdf"
@@ -127,13 +133,13 @@ def handle_client(conn, addr):
         db_data = {
             'ip': addr[0],
             'nombre_archivo': file_name[:-4],
-            'peso_txt': os.path.getsize(temp_input),
-            'peso_pdf': os.path.getsize(output_path),
+            'tamano_txt': os.path.getsize(temp_input),
+            'tamano_pdf': os.path.getsize(output_path),
             'fecha': datetime.now()
         }
         db_queue.put(db_data)
         
-        # enviar 
+        # Enviar respuesta
         with open(output_path, 'rb') as f:
             pdf_data = f.read()
             response_header = {
@@ -142,28 +148,54 @@ def handle_client(conn, addr):
             }
             response_header_json = json.dumps(response_header).encode('utf-8')
             response_header_json += b' ' * (1024 - len(response_header_json))
-            conn.sendall(response_header_json)
-            conn.sendall(pdf_data)
             
-        # Registro exito semaforo
-        with log_semaforo:
+            try:
+                # Enviar encabezado
+                conn.sendall(response_header_json)
+                
+                # Enviar datos en bloques con verificación
+                total_sent = 0
+                while total_sent < len(pdf_data):
+                    chunk = pdf_data[total_sent:total_sent+4096]
+                    sent = conn.send(chunk)
+                    if sent == 0:
+                        raise ConnectionError("Conexión cerrada por el cliente durante el envío")
+                    total_sent += sent
+                    
+            except (ConnectionResetError, BrokenPipeError, TimeoutError) as e:
+                raise ConnectionError("Error de conexión durante el envío del PDF") from e
+            
+        # Registro mutex exitoso
+        with log_lock:
             with open('log_send.txt', 'a', encoding='utf-8') as log_file:
                 timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 log_entry = f"[{timestamp}] Hilo {thread_id} - Archivo {output_name} enviado exitosamente\n"
                 log_file.write(log_entry)
             
-    except Exception as e:
-        # Registro error semaforo
-        with log_semaforo:
+            db_data = {
+                'ip': addr[0],
+                'nombre_archivo': file_name[:-4],
+                'tamano_txt': os.path.getsize(temp_input),
+                'tamano_pdf': os.path.getsize(output_path),
+                'fecha': datetime.now()
+            }
+            db_queue.put(db_data)
+            
+    except ConnectionError as e:
+        error_msg = f"Error de conexión: {str(e)}"
+        with log_lock:
             with open('log_send.txt', 'a', encoding='utf-8') as log_file:
                 timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                log_entry = f"[{timestamp}] Hilo {thread_id} - Error: {str(e)}\n"
+                log_entry = f"[{timestamp}] Hilo {thread_id} - {error_msg}\n"
                 log_file.write(log_entry)
         
-        error_header = {'error': str(e), 'file_size': 0}
-        error_header_json = json.dumps(error_header).encode('utf-8')
-        error_header_json += b' ' * (1024 - len(error_header_json))
-        conn.sendall(error_header_json)
+        try:
+            error_header = {'error': error_msg, 'file_size': 0}
+            error_header_json = json.dumps(error_header).encode('utf-8')
+            error_header_json += b' ' * (1024 - len(error_header_json))
+            conn.sendall(error_header_json)
+        except:
+            pass
     finally:
         # cleaner
         if 'temp_input' in locals():
@@ -199,8 +231,8 @@ def db_worker(queue):
             registro = ConversionLog(
                 ip=data['ip'],
                 nombre_archivo=data['nombre_archivo'],
-                peso_txt=data['peso_txt'],
-                peso_pdf=data['peso_pdf'],
+                tamano_txt=data['tamano_txt'],
+                tamano_pdf=data['tamano_pdf'],
                 fecha=data['fecha']
             )
             session.add(registro)
@@ -221,19 +253,48 @@ def start_server():
         exit_thread = threading.Thread(target=check_exit_command, daemon=True)
         exit_thread.start()
     
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind((HOST, PORT))
-            s.listen()
-            print(f"Server listening on {HOST}:{PORT}")
-            while True:
+        # Crear sockets para todas las familias disponibles
+        sockets = []
+        families = set()
+        
+        # Obtener direcciones disponibles
+        for res in socket.getaddrinfo(None, PORT, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE):
+            af, socktype, proto, canonname, sa = res
+            
+            try:
+                s = socket.socket(af, socktype, proto)
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind(sa)
+                s.listen()
+                sockets.append(s)
+                families.add(af)
+            except OSError as e:
+                if s:
+                    s.close()
+                print(f"Error creando socket para familia {af}: {e}")
+        
+        if not sockets:
+            raise RuntimeError("No se pudo crear ningún socket (IPv4/IPv6 no disponibles)")
+        
+        print(f"Server listening on:")
+        for s in sockets:
+            print(f" - {s.getsockname()} ({'IPv4' if s.family == socket.AF_INET else 'IPv6'})")
+        
+        while True:
+            # select para manejar múltiples sockets
+            readable, _, _ = select.select(sockets, [], [])
+            for s in readable:
                 conn, addr = s.accept()
                 thread = threading.Thread(target=handle_client, args=(conn, addr))
                 thread.start()
     
     finally:
+        # Cerrar todos los sockets
+        for s in sockets:
+            s.close()
         # Asegurar cierre del proceso hijo
         db_process.terminate()
-        db_process.join() 
+        db_process.join()
 
 if __name__ == '__main__':
     start_server()
