@@ -47,10 +47,23 @@ def send_file(file_path, server_ip, server_port):
     file_name = os.path.basename(file_path)
     file_size = os.path.getsize(file_path)
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    # IPv4 o IPv6
+    try:
+        socket.inet_pton(socket.AF_INET, server_ip)
+        addr_family = socket.AF_INET
+    except socket.error:
         try:
-            s.settimeout(5)
+            socket.inet_pton(socket.AF_INET6, server_ip)
+            addr_family = socket.AF_INET6
+        except socket.error:
+            print("Error: Dirección IP no válida")
+            return
+
+    with socket.socket(addr_family, socket.SOCK_STREAM) as s:
+        try:
+            s.settimeout(120)
             s.connect((server_ip, server_port))
+            print(f"Conectado al servidor [{server_ip}]:{server_port} usando {'IPv6' if addr_family == socket.AF_INET6 else 'IPv4'}")
         except (ConnectionRefusedError, socket.timeout) as e:
             print(f"Error de conexión: No se pudo conectar al servidor {server_ip}:{server_port}")
             print(f"Detalles: {str(e)}")
