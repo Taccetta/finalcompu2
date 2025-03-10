@@ -54,16 +54,16 @@ Configura el servidor para aceptar conexiones tanto en IPv4 como en IPv6, utiliz
 *Ejemplo*:
 
 > HOST= (vacio para escuchar todas las direcciones disponibles)
-PORT=5000
+> PORT=5000
 
 > IPv4 loopback
-HOST=127.0.0.1
+> HOST=127.0.0.1
 
 > IPv6 loopback
-HOST=::1
+> HOST=::1
 
 > Escuchar en todas las IPv6
-HOST=::
+> HOST=::
 
 - Iniciar el servidor ejecutando el archivo principal (server.py).
 
