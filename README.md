@@ -5,7 +5,7 @@
 El objetivo de este programa es proporcionar un servicio de conversión de archivos de texto (TXT) a archivos PDF. El servidor recibe archivos TXT de los clientes, los convierte a PDF y devuelve el archivo PDF generado. Además, registra las conversiones en una base de datos y mantiene un log de las operaciones realizadas.
 
 ## Arquitectura del Sistema
-![Arquitectura](https://imgur.com/a/FXlHGtA "Arquitectura")
+![plot](./arquitectura.png)
 
 El sistema está diseñado como una arquitectura cliente-servidor con capacidades de concurrencia y multiprocesamiento para manejar múltiples solicitudes simultáneas. A continuación se describe brevemente la arquitectura:
 
@@ -74,4 +74,5 @@ HOST=::
 - Ejecutar el archivo client.py mediante linea de comandos, especificando la dirección IP del servidor, el puerto y la ruta del archivo .txt a convertir. Ejemplo:
 
 > python client.py --ip 127.0.0.1 --port 5000 --file_path prueba.txt
+> 
 > python client.py --ip 2001:0db8:85a3:0000:0000:8a2e:0370:7334 --port 5000 --file_path prueba.txt
