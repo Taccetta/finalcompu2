@@ -1,0 +1,13 @@
+socket
+threading
+json
+os
+reportlab
+dotenv
+datetime
+multiprocessing
+sqlalchemy
+time
+select
+argparse
+sys
