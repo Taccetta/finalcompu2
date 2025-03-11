@@ -75,9 +75,21 @@ def generar_pdf(txt_path, pdf_path):
         contenido = []
         with open(txt_path, 'r', encoding='utf-8') as f:
             for line in f:
-                line = ' '.join(line.strip().split())
-                if line:  
-                    contenido.append(Paragraph(line, estilo_cuerpo))
+                # depuracion texto
+                line = line.strip()
+                if line:
+                    
+                    line = (line.replace('&', '&amp;')
+                               .replace('<', '&lt;')
+                               .replace('>', '&gt;')
+                               .replace('"', '&quot;')
+                               .replace("'", '&#39;'))
+                    try:
+                        p = Paragraph(line, estilo_cuerpo)
+                        contenido.append(p)
+                    except Exception as e:
+                        print(f"Advertencia: No se pudo procesar la línea: {line[:50]}...")
+                        continue
         
         # PDF
         doc.build(contenido)
@@ -255,7 +267,7 @@ def start_server():
     
         # Crear sockets para todas las familias disponibles
         sockets = []
-        families = set()
+        #families = set()
         
         # Obtener direcciones disponibles
         for res in socket.getaddrinfo(None, PORT, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE):
@@ -267,7 +279,7 @@ def start_server():
                 s.bind(sa)
                 s.listen()
                 sockets.append(s)
-                families.add(af)
+                #families.add(af)
             except OSError as e:
                 if s:
                     s.close()
